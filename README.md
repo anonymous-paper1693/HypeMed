@@ -1,6 +1,9 @@
 # Hypergraphs Meet Medicine: Advancing Medication Recommendations through Enhanced Relationship Modeling
 This paper proposes a medication recommendation method that utilizes the hypergraph approach to capture three levels of intricate relationships in Electronic Health Records.
 
+![HypeMed](HypeMed.png "Magic Gardens")
+*The Architecture of HypeMed. The proposed HypeMed model consists of two main modules: the Medical Entity Hypergraph Contrastive Learning Module (MHCL) and the Relationship Enhanced Medication Prediction Module (REMP). MHCL is responsible for learning contextual representations of medical entities using hypergraph contrastive learning. REMP combines representations from multiple channels and utilizes a vector dot predictor to make medication recommendations.*
+
 [//]: # (HypeMed is an innovative framework designed for medication recommendations by capturing intricate relationships within Electronic Health Records &#40;EHRs&#41;. Leveraging hypergraph contrastive learning, HypeMed considers patient history, medical entity interactions, and prescription patterns across different levels, resulting in highly accurate and balanced medication recommendations. It strikes a fine balance between precision and mitigating medication-related risks, thus enhancing patient safety and treatment efficacy.)
 
 # Abstract
