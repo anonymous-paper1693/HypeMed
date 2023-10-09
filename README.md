@@ -52,6 +52,6 @@ python HypeMed/HypeMedPretrain.py --mimic 3 --name example
 # Testing
 python HypeMed/HypeMedPretrain.py --mimic 3 --Test --name example
 # ablation study
-python HypeMed/HypeMedPretrain.py --mimic 3 --channel_ablation mem --name example
+python HypeMed/HypeMedPretrain.py --mimic 3 --channel_ablation wo_visit --name example
 ```
-You can explore all adjustable hyperparameters through the `HypeMed/config.py` file.
+You can explore all adjustable hyperparameters through the `config.py` file.
