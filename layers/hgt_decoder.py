@@ -6,8 +6,7 @@ from info_nce import InfoNCE
 
 from .ehr_memory_attn import EHRMemoryAttention, HistoryAttention
 from .hgt_encoder import Node2EdgeAggregator
-
-
+    
 class HGTDecoder(nn.Module):
     def __init__(self, embedding_dim, n_heads, dropout, n_ehr_edges, voc_size_dict, padding_dict, device, X_hat, E_mem,
                  ddi_adj, channel_ablation=None, embed_ablation=None, top_n=10, act='relu'):
@@ -94,30 +93,7 @@ class HGTDecoder(nn.Module):
                 for n in self.name_lst
             }
         )
-        self.from_diag = nn.Sequential(
-            nn.LayerNorm(2 * embedding_dim),
-            nn.Linear(2 * embedding_dim, embedding_dim),
-            # nn.Linear(embedding_dim, embedding_dim),
-            self.act(),
-            nn.Dropout(dropout),
-            # nn.Tanh()
-        )
-        # self.from_history_med = nn.Sequential(
-        #     nn.LayerNorm(embedding_dim),
-        #     nn.Linear(embedding_dim, embedding_dim),
-        #     nn.Linear(embedding_dim, embedding_dim),
-        #     nn.LeakyReLU(),
-        #     nn.Dropout(dropout),
-        #     # nn.Tanh()
-        # )
-        self.from_dp = nn.Sequential(
-            nn.LayerNorm(2 * embedding_dim),
-            nn.Linear(2 * embedding_dim, embedding_dim),
-            # nn.Linear(embedding_dim, embedding_dim),
-            self.act(),
-            nn.Dropout(dropout),
-            # nn.Tanh()
-        )
+
 
         self.channel_ablation = channel_ablation
 
@@ -130,20 +106,6 @@ class HGTDecoder(nn.Module):
                 # nn.Dropout(dropout),
                 # nn.Tanh()
             )
-        # self.d_gate = nn.Sequential(
-        #     nn.Linear(2 * embedding_dim, 1),
-        #     nn.Sigmoid()
-        # )
-
-        # self.p_gate = nn.Sequential(
-        #     nn.Linear(2 * embedding_dim, 1),
-        #     nn.Sigmoid()
-        # )
-        #
-        # self.dp_gate = nn.Sequential(
-        #     nn.Linear(2 * embedding_dim, 1),
-        #     nn.Sigmoid()
-        # )
 
 
         self.proj_patient = nn.Linear(embedding_dim, embedding_dim)
@@ -170,19 +132,8 @@ class HGTDecoder(nn.Module):
             top_n=top_n,
             act=self.act
         )
-        #
-        # self.med_context_attn = HistoryAttention(
-        #     embedding_dim=embedding_dim,
-        #     n_heads=n_heads,
-        #     dropout=dropout,
-        # )
-        #
-        # self.dp_context_attn = HistoryAttention(
-        #     embedding_dim=embedding_dim,
-        #     n_heads=n_heads,
-        #     dropout=dropout,
-        # )
-        #
+
+
         self.mem_context_attn = HistoryAttention(
             embedding_dim=embedding_dim,
             n_heads=n_heads,
@@ -191,23 +142,21 @@ class HGTDecoder(nn.Module):
 
         self.fusion_pred_norm = nn.LayerNorm(self.voc_size_dict['med'])
         self.pred_bias = torch.nn.Parameter(torch.zeros(self.voc_size_dict['med']), requires_grad=True)
+        # self.drop_gate = nn.Dropout(0.67)
 
         if channel_ablation is None:
+            self.cat_ln = nn.LayerNorm(2 * embedding_dim)
+
             self.gate_control = nn.Sequential(
-                nn.Linear(3 * embedding_dim, 3),
+                nn.Linear(2 * embedding_dim, 2),
                 nn.Dropout(dropout),
                 # nn.Tanh()
             )
         else:
             print(f'channel_ablation: {self.channel_ablation}')
-            if 'wo' in channel_ablation:
-                self.gate_control = nn.Sequential(
-                    nn.Linear(2 * embedding_dim, 2),
-                    nn.Dropout(dropout),
-                    # nn.Tanh()
-                )
-            else:
-                self.gate_control = None
+            self.cat_ln = nn.LayerNorm(1 * embedding_dim)
+
+            self.gate_control = None
 
         self.info_nce_loss = InfoNCE(reduction='mean')
         self.weight_init()
@@ -242,23 +191,13 @@ class HGTDecoder(nn.Module):
             visit_seq_embed[n] = self.node2edge_agg[n](seq_embed).reshape(bsz, max_vist, dim)
         return visit_seq_embed
 
-    def domain_interact(self, v_d, v_p, v_hm=None) -> Tensor:
-        # hair_v_hm = self.from_history_med(v_hm)
-        # sigma_d = self.d_gate(torch.cat([hair_v_hm, v_d], dim=-1))
-        # i_v_d = sigma_d * hair_v_hm + (1 - sigma_d) * v_d
-        # i_v_d = v_d
-
-        # hair_i_v_d = self.from_diag(i_v_d)
-        # sigma_p = self.p_gate(torch.cat([hair_i_v_d, v_p], dim=-1))
-        # i_v_p = sigma_p * hair_i_v_d + (1 - sigma_p) * v_p
-        #
-        # sigma_dp = self.p_gate(torch.cat([i_v_d, i_v_p], dim=-1))
-        # patient_rep = sigma_dp * i_v_d + (1 - sigma_dp) * i_v_p
-
-        i_v_p = self.from_diag(torch.cat([v_d, v_p], dim=-1))
-        patient_rep = self.from_dp(torch.cat([v_d, i_v_p], dim=-1)) + v_d + v_p
-
-        return patient_rep
+    
+    def orthogonality_loss_cosine(self, emb1, emb2):
+        # 计算两个嵌入向量的余弦相似度
+        cosine_similarity = F.cosine_similarity(emb1, emb2, dim=1)
+        # 由于我们想要的是向量正交（余弦相似度为0），因此可以直接计算余弦相似度的平方
+        loss = torch.mean(cosine_similarity ** 2)
+        return loss
 
     def forward(self, records, masks, true_visit_idx, visit2edge_idx):
         assert len(visit2edge_idx) == true_visit_idx.sum().item()
@@ -295,22 +234,8 @@ class HGTDecoder(nn.Module):
         # visit_rep = visit_seq_embed['diag'] + visit_seq_embed['proc']
         diag_rep = visit_seq_embed['diag']
         proc_rep = visit_seq_embed['proc']
-        if self.channel_ablation is not 'none':
+        if self.channel_ablation != 'none':
 
-            # visit-level
-            visit_level_rep = self.domain_interact(
-                v_d=diag_rep,
-                v_p=proc_rep,
-                # v_hm=med_history
-            )
-            batch_size, max_visit, dim = visit_level_rep.shape
-            visit_level_rep = visit_level_rep.reshape(batch_size * max_visit, dim)
-            visit_level_rep = visit_level_rep[true_visit_idx]  # 只保留非空的visit
-
-            # patient-level: 诊断史,手术史,用药史
-            # combined_rep = visit_seq_embed['diag'] + visit_seq_embed['proc'] + med_history
-            # combined_rep = combined_rep.reshape(batch_size * max_visit, dim)
-            # combined_rep = combined_rep[true_visit_idx]
             dp_rep = visit_seq_embed['diag'] + visit_seq_embed['proc']
             dp_rep = dp_rep.reshape(batch_size * max_visit, dim)
             dp_rep = dp_rep[true_visit_idx]
@@ -362,93 +287,36 @@ class HGTDecoder(nn.Module):
 
                 ssl_loss = med_rep.mean()
 
-            #
-            # dp_context_rep = self.dp_context_attn(patient_rep, attn_mask)
-            # med_context_rep = self.med_context_attn(med_history, attn_mask)
-            #
-            # mem_context_rep = self.mem_context_attn(visit_rep_mem, attn_mask)
 
         if self.channel_ablation is None:
-            # 先融合再预测
-            # cat_rep = torch.cat([
-            #     dp_context_rep.unsqueeze(-1),
-            #     mem_context_rep.unsqueeze(-1),
-            #     med_context_rep.unsqueeze(-1)],
-            #     -1)
             cat_rep = torch.cat([
-                visit_level_rep.unsqueeze(-1),
+                patient_level_rep,
+                ehr_level_rep],
+                -1)
+            cat_rep = self.cat_ln(cat_rep)
+            patient_level_rep, ehr_level_rep = torch.split(cat_rep, dim, dim=-1)
+
+            cat_rep = torch.cat([
                 patient_level_rep.unsqueeze(-1),
                 ehr_level_rep.unsqueeze(-1)],
                 -1)
-            # gate = self.gate_control(cat_rep.reshape(-1, 3 * mem_context_rep.shape[-1])).reshape(-1, 1, 3)
-            gate = self.gate_control(cat_rep.reshape(-1, 3 * visit_level_rep.shape[-1])).reshape(-1, 1, 3)
-            # assert len(gate.shape) == 3 and gate.shape[-1] == 3
+
+            orthogonality_loss = self.orthogonality_loss_cosine(patient_level_rep, ehr_level_rep)
+
+            gate = self.gate_control(cat_rep.reshape(-1, 2 * patient_level_rep.shape[-1])).reshape(-1, 1, 2)
+            assert len(gate.shape) == 3 and gate.shape[-1] == 2
             gate = torch.softmax(gate, -1)
+
             fusion_rep = (gate * cat_rep).sum(-1)
         else:
-            if 'wo' in self.channel_ablation:
-                if self.channel_ablation == 'wo_visit':
-                    cat_rep = torch.cat([
-                        patient_level_rep.unsqueeze(-1),
-                        ehr_level_rep.unsqueeze(-1)],
-                        -1)
-                elif self.channel_ablation == 'wo_patient':
-                    cat_rep = torch.cat([
-                        visit_level_rep.unsqueeze(-1),
-                        ehr_level_rep.unsqueeze(-1)],
-                        -1)
-                elif self.channel_ablation == 'wo_ehr':
-                    cat_rep = torch.cat([
-                        visit_level_rep.unsqueeze(-1),
-                        patient_level_rep.unsqueeze(-1)],
-                        -1)
-                else:
-                    raise ValueError
-
-                # if self.channel_ablation == 'wo_visit':
-                #     cat_rep = torch.cat([
-                #         mem_context_rep.unsqueeze(-1),
-                #         med_context_rep.unsqueeze(-1)],
-                #         -1)
-                # elif self.channel_ablation == 'wo_patient':
-                #     cat_rep = torch.cat([
-                #         dp_context_rep.unsqueeze(-1),
-                #         mem_context_rep.unsqueeze(-1)],
-                #         -1)
-                # elif self.channel_ablation == 'wo_ehr':
-                #     cat_rep = torch.cat([
-                #         dp_context_rep.unsqueeze(-1),
-                #         med_context_rep.unsqueeze(-1)],
-                #         -1)
-                # else:
-                #     raise ValueError
-                # gate = self.gate_control(cat_rep.reshape(-1, 2 * mem_context_rep.shape[-1])).reshape(-1, 1, 2)
-                gate = self.gate_control(cat_rep.reshape(-1, 2 * visit_level_rep.shape[-1])).reshape(-1, 1, 2)
-                assert len(gate.shape) == 3 and gate.shape[-1] == 2
-                gate = torch.softmax(gate, -1)
-                fusion_rep = (gate * cat_rep).sum(-1)
+            if self.channel_ablation == 'only_his':
+                fusion_rep = self.cat_ln(patient_level_rep)
+            elif self.channel_ablation == 'only_ehr':
+                fusion_rep = self.cat_ln(ehr_level_rep)
             else:
-                if self.channel_ablation == 'only_visit':
-                    fusion_rep = visit_level_rep
-                elif self.channel_ablation == 'only_patient':
-                    fusion_rep = patient_level_rep
-                elif self.channel_ablation == 'only_ehr':
-                    fusion_rep = ehr_level_rep
-                elif self.channel_ablation == 'none':
-                    fusion_rep = torch.cat([diag_rep, proc_rep, med_history], dim=-1)
-                    fusion_rep = fusion_rep.reshape(batch_size * max_visit, 3 * dim)
-                    fusion_rep = fusion_rep[true_visit_idx]
-                    fusion_rep = self.none_mlp(fusion_rep)
-                else:
-                    raise ValueError
-                # if self.channel_ablation == 'only_dp':
-                #     fusion_rep = dp_context_rep
-                # elif self.channel_ablation == 'only_med':
-                #     fusion_rep = med_context_rep
-                # elif self.channel_ablation == 'only_mem':
-                #     fusion_rep = mem_context_rep
-                # else:
-                #     raise ValueError
+                raise ValueError
+            orthogonality_loss = 0
+            gate = None
 
         med_rep = X_hat['med'](torch.arange(self.num_dict['med'], dtype=torch.long, device=self.device))
 
@@ -465,7 +333,8 @@ class HGTDecoder(nn.Module):
         # 计算ssl
         side_loss = {
             'ddi': batch_neg,
-            'ssl': ssl_loss,
+            'ssl': ssl_loss + orthogonality_loss * 100,
+            'gate': gate
             # 'moe': moe_loss
         }
 

@@ -9,8 +9,20 @@ import torch.nn as nn
 import torch.sparse as tsp
 import torch.nn.functional as F
 
+import os
+
 from torch import Tensor
 from typing import Optional
+
+from .position_encoding import HypergraphKnowledgeEncoding
+
+from torch_geometric.nn import MessagePassing
+from torch_geometric.nn.aggr import Aggregation
+from typing import Any, Dict, List, Union
+from torch_geometric.utils import scatter, softmax
+
+
+from torch_geometric.typing import Adj, Size
 
 
 class TriCL(nn.Module):
@@ -241,3 +253,161 @@ class TriCL(nn.Module):
         loss = loss_n + loss_e
         loss = loss.mean() if mean else loss.sum()
         return loss
+
+class GCNCL(nn.Module):
+    def __init__(self, encoder, embedding_dim, num_nodes, device, name, idx2word=None, cache_pth=None):
+        super(GCNCL, self).__init__()
+        self.device = device
+        self.encoder = encoder
+
+        self.num_nodes = num_nodes
+        self.node_dim = embedding_dim
+        # weight = torch.load('/data/home/xiangxu_zhang/codes_repo/HypeMed/pretrain/embed/pubmedbert/mimiciii/pubmedembed_mimic_3.pt')[name].to(torch.float32)
+        # self.node_embedding = nn.Embedding(self.num_nodes, self.node_dim).from_pretrained(weight, freeze=False)
+        self.node_embedding = nn.Embedding(self.num_nodes, self.node_dim)
+        # if idx2word is not None:
+        #     if not os.path.exists(os.path.join(cache_pth)):
+        #         os.makedirs(os.path.join(cache_pth))
+        #     cur_cache_pth = os.path.join(cache_pth, name + '_ke.pt')
+        #     self.knowledge_encoding = HypergraphKnowledgeEncoding(idx2word, embedding_dim, cur_cache_pth, device, name)
+        self.embedding_norm = nn.LayerNorm(self.node_dim)
+        self.reset_parameters()
+    
+
+    def reset_parameters(self):
+        self.encoder.reset_parameters()
+        self.node_embedding.reset_parameters()
+        self.embedding_norm.reset_parameters()
+    
+    def forward(self, x: Tensor, edge_index: Tensor):
+        # GCN Convolution
+        # x = self.embedding_norm(x)
+        ke_bias = None
+        # if hasattr(self, 'knowledge_encoding'):
+        #     ke, ke_bias = self.knowledge_encoding()
+        #     x = x + ke
+        x = self.encoder(x, edge_index)
+        
+        return x
+    
+    def reset_parameters(self):
+        self.encoder.reset_parameters()
+        self.node_embedding.reset_parameters()
+
+    def get_features(self):
+        node_idx = torch.arange(self.num_nodes, device=self.device)
+        node_features = self.node_embedding(node_idx)
+        return node_features
+    
+import torch
+from torch_geometric.nn import MessagePassing
+from torch_scatter import scatter
+
+class EdgeAggregator(MessagePassing):
+    def __init__(self, in_channels, out_channels, heads=1, aggr: Aggregation = 'mean', flow: str = 'source_to_target'):
+        self.heads = heads
+        self.in_channels = in_channels
+        self.out_channels = out_channels
+
+        super(EdgeAggregator, self).__init__(aggr=aggr, flow=flow, node_dim=0,)
+        self.in_ln = nn.LayerNorm(in_channels)
+        self.out_ln = nn.LayerNorm(out_channels)
+
+    def forward(self, x: Tensor, hyperedge_index: Tensor,
+                hyperedge_weight: Optional[Tensor] = None,
+                hyperedge_attr: Optional[Tensor] = None,
+                num_edges: Optional[int] = None) -> Tensor:
+        num_nodes = x.size(0)
+        x = self.in_ln(x)
+        if num_edges is None:
+            num_edges = 0
+            if hyperedge_index.numel() > 0:
+                num_edges = int(hyperedge_index[1].max()) + 1
+        
+        B = scatter(x.new_ones(hyperedge_index.size(1)), hyperedge_index[1],
+                    dim=0, dim_size=num_edges, reduce='sum')
+        B = 1.0 / B
+        B[B == float("inf")] = 0
+
+        alpha = None
+        # if self.use_attention:
+        #     assert hyperedge_attr is not None
+        #     x = x.view(-1, self.heads, self.out_channels)
+        #     hyperedge_attr = self.lin(hyperedge_attr)
+        #     hyperedge_attr = hyperedge_attr.view(-1, self.heads,
+        #                                          self.out_channels)
+        #     x_i = x[hyperedge_index[0]]
+        #     x_j = hyperedge_attr[hyperedge_index[1]]
+        #     alpha = (torch.cat([x_i, x_j], dim=-1) * self.att).sum(dim=-1)
+        #     alpha = F.leaky_relu(alpha, self.negative_slope)
+        #     if self.attention_mode == 'node':
+        #         alpha = softmax(alpha, hyperedge_index[1], num_nodes=x.size(0))
+        #     else:
+        #         alpha = softmax(alpha, hyperedge_index[0], num_nodes=x.size(0))
+        #     alpha = F.dropout(alpha, p=self.dropout, training=self.training)
+
+        out = self.propagate(hyperedge_index, x=x, norm=B, alpha=alpha,
+                             size=(num_nodes, num_edges))
+        
+        return self.out_ln(out.mean(dim=1))
+        
+
+    def message(self, x_j: Tensor, norm_i: Tensor, alpha: Tensor) -> Tensor:
+        H, F = self.heads, self.out_channels
+
+        out = norm_i.view(-1, 1, 1) * x_j.view(-1, H, F)
+
+        if alpha is not None:
+            out = alpha.view(-1, self.heads, 1) * out
+
+        return out
+
+    
+class HGCNCL(nn.Module):
+    def __init__(self, encoder, embedding_dim, num_nodes, num_edges, device, name, idx2word=None, cache_pth=None):
+        super(HGCNCL, self).__init__()
+        self.device = device
+        self.encoder = encoder
+        self.num_edges = num_edges
+        self.num_nodes = num_nodes
+        self.node_dim = embedding_dim
+        # weight = torch.load('/data/home/xiangxu_zhang/codes_repo/HypeMed/pretrain/embed/pubmedbert/mimiciii/pubmedembed_mimic_3.pt')[name].to(torch.float32)
+        # self.node_embedding = nn.Embedding(self.num_nodes, self.node_dim).from_pretrained(weight, freeze=False)
+        self.node_embedding = nn.Embedding(self.num_nodes, self.node_dim)
+
+        self.edge_aggregator = EdgeAggregator(embedding_dim, embedding_dim)
+        # if idx2word is not None:
+        #     if not os.path.exists(os.path.join(cache_pth)):
+        #         os.makedirs(os.path.join(cache_pth))
+        #     cur_cache_pth = os.path.join(cache_pth, name + '_ke.pt')
+        #     self.knowledge_encoding = HypergraphKnowledgeEncoding(idx2word, embedding_dim, cur_cache_pth, device, name)
+
+
+        self.reset_parameters()
+    
+    def reset_parameters(self):
+        self.encoder.reset_parameters()
+        self.edge_aggregator.reset_parameters()
+        self.node_embedding.reset_parameters()
+    
+    def forward(self, x: Tensor, edge_index: Tensor):
+        # GCN Convolution
+        # if hasattr(self, 'knowledge_encoding'):
+        #     ke, ke_bias = self.knowledge_encoding()
+        #     x = x + ke
+        e = self.edge_aggregator(x, edge_index, num_edges=self.num_edges)
+
+        x = self.encoder(x, edge_index)
+
+        assert e.shape[0] == self.num_edges  # mimic3 10489 mimic4 13763
+        return x, e
+    
+    def reset_parameters(self):
+        self.encoder.reset_parameters()
+        self.node_embedding.reset_parameters()
+
+    def get_features(self):
+        node_idx = torch.arange(self.num_nodes, device=self.device)
+        node_features = self.node_embedding(node_idx)
+        return node_features
+

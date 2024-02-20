@@ -6,6 +6,10 @@ import numpy as np
 import torch
 import torch.sparse as tsp
 from sklearn.cluster import SpectralClustering
+
+from tqdm import tqdm
+
+
 def factorize_and_recover(H, niter=10, k=5):
     """
     H: torch sparse 稀疏矩阵
@@ -86,3 +90,29 @@ def construct_graphs(data_train, nums_dict):
 
     H_dict = {k: v.coalesce() for k, v in H_dict.items()}
     return H_dict
+
+
+def construct_normal_graph(H_dict):
+    normal_graph = {}
+
+    for name, H in H_dict.items():
+        indices = H.indices()
+        n_nodes = H.shape[0]
+        adjacency_matrix = torch.zeros((n_nodes, n_nodes), dtype=int)
+
+        # 遍历每个超边
+        for hyperedge_id in tqdm(torch.unique(indices[1])):
+            nodes_in_hyperedge = indices[0, indices[1] == hyperedge_id]
+
+            # 记录所有在这个超边中的节点对
+            for node1 in nodes_in_hyperedge:
+                for node2 in nodes_in_hyperedge:
+                    if node1 != node2 and adjacency_matrix[node1, node2] == 0:
+                        adjacency_matrix[node1, node2] = 1
+
+        # 将邻接矩阵转换为edge index的形式
+        edge_indices = np.array(np.nonzero(adjacency_matrix))
+        normal_graph[name] = torch.tensor(edge_indices, dtype=torch.long)
+
+    return normal_graph
+

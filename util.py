@@ -1,6 +1,9 @@
 import sys
 import warnings
 from collections import defaultdict
+import random
+import os
+import wandb
 
 import dill
 import numpy as np
@@ -15,6 +18,49 @@ from sklearn.model_selection import train_test_split
 
 warnings.filterwarnings("ignore")
 
+# wandb
+def init_wandb(args):
+    # start a new wandb run to track this script
+    if args.wandb:
+        wandb.init(
+            # set the wandb project where this run will be logged
+            project="HypeMed",
+            group=args.model_name,
+            tags=[f'mimic{args.mimic}'],
+            # track hyperparameters and run metadata
+            config={
+                "learning_rate": args.lr,
+                "weight_decay": args.weight_decay,
+                "architecture": args.model_name,
+                "dataset": f"MIMIC-{args.mimic}",
+                "epochs": args.epoch,
+                "batch_size": args.bsz,
+                "emb_dim": args.dim,
+                "seed": args.seed,
+                'n_layers': args.n_layers,
+                'win_sz': args.win_sz,
+                'n_heads': args.n_heads,
+                'dropout': args.dropout,
+            },
+
+            name=f'{args.model_name}_{args.name}_drop_{args.dropout}_lr_{args.lr}_w_decay_{args.weight_decay}_win_sz_{args.win_sz}_layers_{args.n_layers}',
+
+            # dir
+            dir='./saved'
+        )
+
+def _init_fn(worker_id):
+    np.random.seed(int(8895) + worker_id)
+
+def seed_torch(seed=8895):
+    random.seed(seed)
+    os.environ['PYTHONHASHSEED'] = str(seed)  # 为了禁止hash随机化，使得实验可复现
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed(seed)
+    torch.cuda.manual_seed_all(seed)  # if you are using multi-GPU.
+    torch.backends.cudnn.benchmark = False
+    torch.backends.cudnn.deterministic = True
 
 def get_n_params(model):
     pp = 0
@@ -30,41 +76,6 @@ def get_n_params(model):
 def llprint(message):
     sys.stdout.write(message)
     sys.stdout.flush()
-
-
-def transform_split(X, Y):
-    x_train, x_eval, y_train, y_eval = train_test_split(
-        X, Y, train_size=2 / 3, random_state=1203
-    )
-    x_eval, x_test, y_eval, y_test = train_test_split(
-        x_eval, y_eval, test_size=0.5, random_state=1203
-    )
-    return x_train, x_eval, x_test, y_train, y_eval, y_test
-
-
-def sequence_output_process(output_logits, filter_token):
-    pind = np.argsort(output_logits, axis=-1)[:, ::-1]
-
-    out_list = []
-    break_flag = False
-    for i in range(len(pind)):
-        if break_flag:
-            break
-        for j in range(pind.shape[1]):
-            label = pind[i][j]
-            if label in filter_token:
-                break_flag = True
-                break
-            if label not in out_list:
-                out_list.append(label)
-                break
-    y_pred_prob_tmp = []
-    for idx, item in enumerate(out_list):
-        y_pred_prob_tmp.append(output_logits[idx, item])
-    sorted_predict = [
-        x for _, x in sorted(zip(y_pred_prob_tmp, out_list), reverse=True)
-    ]
-    return out_list, sorted_predict
 
 
 def sequence_metric(y_gt, y_pred, y_prob, y_label):
@@ -280,126 +291,6 @@ def ddi_rate_score(record, path="../data/ddi_A_final.pkl"):
         return 0
     return dd_cnt / all_cnt
 
-
-def create_atoms(mol, atom_dict):
-    """Transform the atom types in a molecule (e.g., H, C, and O)
-    into the indices (e.g., H=0, C=1, and O=2).
-    Note that each atom index considers the aromaticity.
-    """
-    atoms = [a.GetSymbol() for a in mol.GetAtoms()]
-    for a in mol.GetAromaticAtoms():
-        i = a.GetIdx()
-        atoms[i] = (atoms[i], "aromatic")
-    atoms = [atom_dict[a] for a in atoms]
-    return np.array(atoms)
-
-
-def create_ijbonddict(mol, bond_dict):
-    """Create a dictionary, in which each key is a node ID
-    and each value is the tuples of its neighboring node
-    and chemical bond (e.g., single and double) IDs.
-    """
-    i_jbond_dict = defaultdict(lambda: [])
-    for b in mol.GetBonds():
-        i, j = b.GetBeginAtomIdx(), b.GetEndAtomIdx()
-        bond = bond_dict[str(b.GetBondType())]
-        i_jbond_dict[i].append((j, bond))
-        i_jbond_dict[j].append((i, bond))
-    return i_jbond_dict
-
-
-def extract_fingerprints(radius, atoms, i_jbond_dict, fingerprint_dict, edge_dict):
-    """Extract the fingerprints from a molecular graph
-    based on Weisfeiler-Lehman algorithm.
-    """
-
-    if (len(atoms) == 1) or (radius == 0):
-        nodes = [fingerprint_dict[a] for a in atoms]
-
-    else:
-        nodes = atoms
-        i_jedge_dict = i_jbond_dict
-
-        for _ in range(radius):
-
-            """Update each node ID considering its neighboring nodes and edges.
-            The updated node IDs are the fingerprint IDs.
-            """
-            nodes_ = []
-            for i, j_edge in i_jedge_dict.items():
-                neighbors = [(nodes[j], edge) for j, edge in j_edge]
-                fingerprint = (nodes[i], tuple(sorted(neighbors)))
-                nodes_.append(fingerprint_dict[fingerprint])
-
-            """Also update each edge ID considering
-            its two nodes on both sides.
-            """
-            i_jedge_dict_ = defaultdict(lambda: [])
-            for i, j_edge in i_jedge_dict.items():
-                for j, edge in j_edge:
-                    both_side = tuple(sorted((nodes[i], nodes[j])))
-                    edge = edge_dict[(both_side, edge)]
-                    i_jedge_dict_[i].append((j, edge))
-
-            nodes = nodes_
-            i_jedge_dict = i_jedge_dict_
-
-    return np.array(nodes)
-
-
-def buildMPNN(molecule, med_voc, radius=1, device="cpu:0"):
-
-    atom_dict = defaultdict(lambda: len(atom_dict))
-    bond_dict = defaultdict(lambda: len(bond_dict))
-    fingerprint_dict = defaultdict(lambda: len(fingerprint_dict))
-    edge_dict = defaultdict(lambda: len(edge_dict))
-    MPNNSet, average_index = [], []
-
-    for index, atc3 in med_voc.items():
-
-        smilesList = list(molecule[atc3])
-        """Create each old_data with the above defined functions."""
-        counter = 0  # counter how many drugs are under that ATC-3
-        for smiles in smilesList:
-            try:
-                mol = Chem.AddHs(Chem.MolFromSmiles(smiles))
-                atoms = create_atoms(mol, atom_dict)
-                molecular_size = len(atoms)
-                i_jbond_dict = create_ijbonddict(mol, bond_dict)
-                fingerprints = extract_fingerprints(
-                    radius, atoms, i_jbond_dict, fingerprint_dict, edge_dict
-                )
-                adjacency = Chem.GetAdjacencyMatrix(mol)
-                # if fingerprints.shape[0] == adjacency.shape[0]:
-                for _ in range(adjacency.shape[0] - fingerprints.shape[0]):
-                    fingerprints = np.append(fingerprints, 1)
-
-                fingerprints = torch.LongTensor(fingerprints).to(device)
-                adjacency = torch.FloatTensor(adjacency).to(device)
-                MPNNSet.append((fingerprints, adjacency, molecular_size))
-                counter += 1
-            except:
-                continue
-
-        average_index.append(counter)
-
-        """Transform the above each old_data of numpy
-        to pytorch tensor on a device (i.e., CPU or GPU).
-        """
-
-    N_fingerprint = len(fingerprint_dict)
-    # transform into projection matrix
-    n_col = sum(average_index)
-    n_row = len(average_index)
-
-    average_projection = np.zeros((n_row, n_col))
-    col_counter = 0
-    for i, item in enumerate(average_index):
-        if item > 0:
-            average_projection[i, col_counter : col_counter + item] = 1 / item
-        col_counter += item
-
-    return MPNNSet, N_fingerprint, torch.FloatTensor(average_projection)
 
 def replace_with_padding_woken(data, org_pad_token, target_value):
     return torch.where(data == org_pad_token, target_value, data)

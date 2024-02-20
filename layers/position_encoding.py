@@ -118,7 +118,11 @@ class HypergraphKnowledgeEncoding(nn.Module):
         self.idx2word = idx2word
         self.n_nodes = len(self.idx2word)
         self.ke_dim = ke_dim
+        self.ignore_code = ['K8689', 'I160', 'Z98890', 'I161', 'Z7984', 'M48062', 'R8271', 'F429', 'M48061', 'K8590', 'L7632', 'I21A1', 'T83511A', 'I2720', 'F1011', 'R7303', 'NoDx', 'A0472', 'T82855A', 'K5903'] + ['0PD00ZZ', '02UX0JZ', '5A1D70Z', '02VG0ZZ', '0DBU0ZX', '09BM8ZZ', '0KR407Z', 'X2C0361', '04V03FZ', '3E02340', '0BDF8ZX', '0BD18ZX', '0BDC8ZX', '04V00E6', '02VX0FZ', '04VC3EZ', '06PY0YZ', '0F773ZZ', '02VX3EZ', '0BQT4ZZ', '0SPT0JZ', '0FBG8ZX', 'X2RF332', '04CK0Z6', '09PK7YZ', '0BD38ZX', 'X2A5312', '04V00EZ', '02LW3DJ', '04V03EZ', '0KXG0Z5', '0BD58ZX', '0KDJ0ZZ', '0KR207Z', '02CX0ZZ', '00R20JZ', '0SPW0JZ', '3E0G4GC', '09JK8ZZ', '3E0L4GC', '0DP60YZ', '03C83Z6', '02S10ZZ', '02UX08Z', '0BBT0ZZ', '02WF3JZ', '03VL3HZ', '02HA3RJ', '02UG0JE', '0009', '0SP90EZ', '0FD98ZX', '0FQ70ZZ', '04V03D6', '4A0074Z', '04VD3EZ', '0F174ZB', '0KR307Z', '02PA3YZ', '0DD78ZX', '02VW3EZ', '0KDH0ZZ', '0QDG0ZZ', '0DDL8ZX', '5A1522F', '0BST0ZZ', '0KD50ZZ', '0BD78ZX', '02HK3NZ', '06L38CZ', '09UM87Z', '04V03E6', '0WCH0ZZ', '06L28CZ', '0SPS0JZ', '0DH58YZ', '0QDH0ZZ', '0SRB0EZ', '5A1D90Z', '0DNU4ZZ', '0KDL0ZZ', '0D1E0ZE', '0BH14YZ', '04PY0YZ', '04CC0Z6', '02VW3FZ', '02QX0ZZ', '0JPT0YZ', '0PD90ZZ', '03CL0Z6', '09BS8ZZ', '0BNT0ZZ', '0SR90EZ', '0BD98ZX', '0F778DZ', '0DBU4ZZ', '0WB30ZZ', '0BQT0ZZ', '09JY8ZZ', '07D13ZX', '0QD70ZZ', '0DDP8ZX', '0BR407Z', '09CW8ZZ', '02UX07Z', '0GBJ0ZZ', '04V03F6', '03CK0Z6', '0DBU3ZX', '0BU18KZ', '02RX08Z', '00CU0ZZ', '0UHD8YZ', '0DD98ZX', '0SPR0JZ', '02VX0DZ', '09QX8ZZ', '0KR007Z', '0SPU0JZ', '02WG3JZ', '02VX3DZ', '07D78ZX', '0DNU0ZZ', '0F9730Z', '0NDV0ZZ', '03CL3Z7', '0QDL0ZZ', 'X2C1361', '5A1D80Z', '0DDN8ZX', '03CL3Z6', '0BD88ZX', '0DBU0ZZ', '0BDB8ZX', '02RX0JZ', '0KXF0Z5', 'XW03331', '02VX0EZ', '02CX3ZZ', '03VG3HZ', '02VX3FZ', '04V00F6', '0F773DZ', '0BCT4ZZ', '03CG3Z7', '6ABF0BZ', '0DD68ZX', '0BUT4JZ', '02LR3DZ', '5A1522H', '0F170ZB', '5A1522G', '0BUT0JZ', '09QW8ZZ', '0FHB3YZ', '0SPA0JZ']
+
+
         if 'cache_4' in cache_pth:
+            print('KE disenabled')
             self.enabled = False
         else:
             self.enabled = True
@@ -147,11 +151,19 @@ class HypergraphKnowledgeEncoding(nn.Module):
         self.proj.reset_parameters()
 
     def icd_dist(self, u, v):
+        # 计算两个节点之间的距离
+        # 参数u和v分别表示两个节点的索引
+
         u_icd, v_icd = self.idx2word[u], self.idx2word[v]
+        if u_icd in self.ignore_code or v_icd in self.ignore_code:
+            return 6
 
         # ICD9编码,前3位数字,如果有字母就是字母+前三位数字算一个大类
         # 参照wiki https://zh.wikipedia.org/zh-hans/ICD-9%E7%BC%96%E7%A0%81%E5%88%97%E8%A1%A8
         def icd_transform(icd_code):
+            # 将ICD编码转换为层级列表
+            # 参数icd_code表示ICD编码
+
             split_lst = []
             if self.name != 'med':
                 # 第一级
