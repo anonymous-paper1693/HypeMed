@@ -32,6 +32,8 @@ NumPy==1.24.4
 
 Below is a guide on how to use the scripts. Before processing, please change the `'pathtomimic'` in `HypeMed.py` to the real path.
 
+Please download **drug-DDI.csv**, which a large file, containing the drug DDI information. Please put it in `data`. The file could be downloaded from https://drive.google.com/file/d/1mnPc0O0ztz0fkv3HF-dpmBb8PLWsEoDz/view?usp=sharing
+
 ```bash
 # Data Processing.
 python data/processing.py # MIMIC-III
