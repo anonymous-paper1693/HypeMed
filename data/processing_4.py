@@ -360,7 +360,7 @@ def ddi_rate_score(record, path):
 if __name__ == '__main__':
     # files can be downloaded from https://mimic.physionet.org/gettingstarted/dbsetup/
     # please change into your own MIMIC folder
-    datadir = os.path.dirname(os.path.abspath(__file__)) + '/MIMIC-IV/'
+    datadir = 'pathtomimic' + '/mimiciv/2.0/hosp/'
     med_file = datadir + "prescriptions_filtered.csv"  # '/srv/local/data/physionet.org/files/mimiciii/1.4/PRESCRIPTIONS.csv'
     diag_file = datadir + "diagnoses_icd.csv"  # '/srv/local/data/physionet.org/files/mimiciii/1.4/DIAGNOSES_ICD.csv'
     procedure_file = datadir + "procedures_icd.csv"  # '/srv/local/data/physionet.org/files/mimiciii/1.4/PROCEDURES_ICD.csv'

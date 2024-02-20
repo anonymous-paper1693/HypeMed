@@ -1,3 +1,4 @@
+
 import pandas as pd
 import dill
 import numpy as np
@@ -291,9 +292,10 @@ if __name__ == '__main__':
 
     # files can be downloaded from https://mimic.physionet.org/gettingstarted/dbsetup/
     # please change into your own MIMIC folder
-    med_file = '~/data/physionet.org/files/mimiciii/1.4/PRESCRIPTIONS.csv'
-    diag_file = '~/data/physionet.org/files/mimiciii/1.4/DIAGNOSES_ICD.csv'
-    procedure_file = '~/data/physionet.org/files/mimiciii/1.4/PROCEDURES_ICD.csv'
+    datadir = 'pathtomimic' + '/mimiciii/1.4/'
+    med_file = datadir + 'PRESCRIPTIONS.csv'
+    diag_file = datadir + 'DIAGNOSES_ICD.csv'
+    procedure_file = datadir + 'PROCEDURES_ICD.csv'
 
     med_structure_file = './idx2drug.pkl'
 
