@@ -1,4 +1,4 @@
-# HypeMed: Advancing Medication Recommendation with Hypergraph-Driven Cross-Patient Relationships Modeling
+# HypeMed: Enhancing Medication Recommendations with Hypergraph-Based Patient Relationships
 This paper proposes a medication recommendation method that utilizes the hypergraph approach to capture cross-patient relationships in Electronic Health Records.
 
 ![HypeMed](./assets/HypeMed.svg "Magic Gardens")
