@@ -1,15 +1,13 @@
 # HypeMed: Enhancing Medication Recommendations with Hypergraph-Based Patient Relationships
 This paper proposes a medication recommendation method that utilizes the hypergraph approach to capture cross-patient relationships in Electronic Health Records.
 
-![HypeMed](./assets/HypeMed.svg "Magic Gardens")
+![HypeMed](./assets/HypeMedv13.svg "Magic Gardens")
 <!-- *The Architecture of HypeMed. The proposed HypeMed model consists of two main modules: the Medical Entity Hypergraph Contrastive Learning Module (MHCL) and the Relationship Enhanced Medication Prediction Module (REMP). MHCL is responsible for learning contextual representations of medical entities using hypergraph contrastive learning. REMP combines representations from multiple channels and utilizes a vector dot predictor to make medication recommendations.* -->
 
-*The Architecture of HypeMed. HypeMed comprises two stages: the Medical Entity Relevance Representation Stage (MedRep) and the Similar Case Enhanced Medication Recommendation Stage (SimMR). MedRep focuses on modeling the global context-related entity relationships. SimMR models historical and similar case information to make recommendations.*
-
-[//]: # (HypeMed is an innovative framework designed for medication recommendations by capturing intricate relationships within Electronic Health Records &#40;EHRs&#41;. Leveraging hypergraph contrastive learning, HypeMed considers patient history, medical entity interactions, and prescription patterns across different levels, resulting in highly accurate and balanced medication recommendations. It strikes a fine balance between precision and mitigating medication-related risks, thus enhancing patient safety and treatment efficacy.)
+*Overall architecture of HypeMed. HypeMed comprises two stages: the Medical Entity Relevance Representation Stage (MedRep) and the Similar Visit Enhanced Medication Recommendation Stage (SimMR). MedRep focuses on encoding intra-visit set-level combinatorial semantics into a globally consistent, retrieval-friendly embedding space. SimMR integrates longitudinal history and visit-conditioned retrieved similar visits to refine latent condition estimation.*
 
 # Abstract
-The AI-driven personalized medication recommendation field has gained significant attention in recent years. However, most existing algorithms focus primarily on modeling historical relationships within individual patient visit records, overlooking cross-patient relationships. This includes neglecting contextual connections beyond pairwise interactions between medical entities and the similarities between cases across different patients. This limitation hinders their ability to provide precise and tailored medication recommendations. To address this issue, this paper present **HypeMed**: a two-stage **Hype**rgraph-based **Med**ication recommendation framework. By leveraging the structural properties inherent in hypergraphs, it achieves a more comprehensive capture of the cross-patient relationships. HypeMed comprises two stages: the Medical Entity Relevance Representation Stage (MedRep) and the Similar Case Enhanced Medication Recommendation Stage (SimMR). MedRep focuses on modeling the global context-related relationships among multiple medical entities. SimMR establishes two channels to model the historical information within historical records and similar case information. By combining the two, highly accurate medication predictions for each patient visit can be provided. Rigorous experiments on real-world MIMIC-III and MIMIC-IV datasets validate the effectiveness of HypeMed, which surpasses current methods in recommendation accuracy and minimizes drug-drug interactions better than human experts. This demonstrates the significant potential of HypeMed in medication recommendation.
+AI-driven medication recommendation aims to generate safe and effective medication combinations from patients’ electronic health records (EHRs). However, accurately recommending medications hinges on inferring a patient’s latent clinical condition from sparse and noisy observations, which requires both (i) preserving the visit-level combinatorial semantics of co-occurring diagnoses/procedures and (ii) leveraging informative historical references through effective, visit-conditioned retrieval. Most existing methods fall short in one of these aspects: graph-based modeling often fragments higher-order intra-visit patterns into pairwise relations, while inter-visit augmentation methods commonly exhibit an imbalance between learning a globally stable representation space and performing dynamic retrieval within it. To address these limitations, this paper proposes HypeMed, a two-stage hypergraph-based medication recommendation framework that unifies intra-visit coherence modeling with inter-visit reference augmentation. In the first stage, MedRep represents each visit as a hyperedge and performs knowledge-aware hypergraph contrastive pre-training to encode high-order interactions into a globally consistent, retrieval-friendly embedding space. In the second stage, SimMR conducts visit-conditioned dynamic retrieval directly in this hyperedge-aware space and fuses the retrieved references with the patient’s longitudinal history to refine condition estimation and improve medication prediction. Experiments on MIMIC-III/IV and eICU demonstrate that HypeMed consistently improves recommendation accuracy while reducing the drug–drug interaction (DDI) rate, indicating enhanced effectiveness and safety. The implementation is publicly available at https://github.com/xansar/HypeMed.
 
 ## Table of Contents
 - [Description](#description)
@@ -28,7 +26,6 @@ NumPy==1.24.4
 ```
 
 ## Usage
-<!-- We follow the preprossing procedures of [SafeDrug](https://github.com/ycq091044/SafeDrug/tree/archived). -->
 
 Below is a guide on how to use the scripts. Before processing, please change the `'pathtomimic'` in `HypeMed.py` to the real path.
 
@@ -51,3 +48,15 @@ python HypeMed.py --mimic 3 --pretrain_epoch 3 --Test --name example
 python HypeMed.py --mimic 3 --pretrain_epoch 3 --channel_ablation only_his --name example
 ```
 You can explore all adjustable hyperparameters through the `config.py` file.
+
+## Acknowledgement
+
+This project was inspired by and partially built upon several excellent open-source repositories. We sincerely thank the original authors for making their code publicly available.
+
+Special thanks to:
+- [SafeDrug](https://github.com/ycq091044/SafeDrug)
+- [COGNet](https://github.com/BarryRun/COGNet)
+- [GAMENet](https://github.com/sjy1203/GAMENet)
+- [mimic-code](https://github.com/MIT-LCP/mimic-code)
+
+Their valuable implementations greatly helped the development of this project.
